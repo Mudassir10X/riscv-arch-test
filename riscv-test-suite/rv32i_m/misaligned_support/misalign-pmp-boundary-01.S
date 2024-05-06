@@ -18,16 +18,6 @@ RVTEST_CASE(0,"//check ISA:=regex(.*32.*);check ISA:=regex(.*I.*); check hw_data
 RVTEST_CASE(1,"//check ISA:=regex(.*32.*);check ISA:=regex(.*I.*Zicsr.*); check hw_data_misaligned_support:=False; def rvtest_mtrap_routine=True;def TEST_CASE_1=True;",misalign-lw)
 
 RVTEST_SIGBASE( x1,signature_x1_1)
-    j main
-.align 4
-pmp0_data_check:                                        // RWX      (0x80000210 - 0x8000120F)
-    .fill 1024*(XLEN/32), 4 , 0xdeadbeef
-pmp1_data_check:                                        // x        (0x80001210 - 0x8000220F)
-    .fill 1024*(XLEN/32), 4 , 0xbeefcafe
-pmp2_data_check:                                        // none     (0x80002210 - 0x8000320F)
-    .fill 1024*(XLEN/32), 4 , 0xabcdefab
-pmp3_data_check:                                        // RW       (0x80003210 - 0x8000420F)
-    .fill 1024*(XLEN/32), 4 , 0xfedcbafe
 
 main:
     LA      (t2, pmp0_data_check)						// Load starting address of PMP region                
@@ -95,11 +85,18 @@ LOAD_CHECK:
 
 
 RVTEST_CODE_END
-RVMODEL_HALT
+# RVMODEL_HALT
 
 RVTEST_DATA_BEGIN
-.align 4
-
+.align 14
+pmp0_data_check:                                        // RWX      (0x80008000 - 0x80008FFF)
+    .fill 1024*(XLEN/32), 4 , 0xdeadbeef
+pmp1_data_check:                                        // x        (0x80009000 - 0x80009FFF)
+    .fill 1024*(XLEN/32), 4 , 0xbeefcafe
+pmp2_data_check:                                        // none     (0x8000A000 - 0x8000AFFF)
+    .fill 1024*(XLEN/32), 4 , 0xabcdefab
+pmp3_data_check:                                        // RW       (0x8000B000 - 0x8000BFFF)
+    .fill 1024*(XLEN/32), 4 , 0xfedcbafe
 rvtest_data:
 .word 0xbabecafe
 .word 0xbabecafe

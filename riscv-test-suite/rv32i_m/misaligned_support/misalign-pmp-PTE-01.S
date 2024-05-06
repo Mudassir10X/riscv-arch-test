@@ -109,41 +109,10 @@ main:
 	in their respective S-mode save area */
 
 	/****** code ******/
-
-	LI (t0, va)                                                             // load the virtual address of vm_en in t0
-	LA (t1, pa)                                                             // load the physical address of vm_en in t1
-	sub t0, t0, t1                                                          // (VA-PA) Note: VA > PA 
-	csrr sp, mscratch                                                       // load the value of mscratch in sp
-	add t1,sp,t0                                                            // add the offset to the base address of save area
-	csrw sscratch, t1                                                       // write the address of save area in sscratch
-	
-	LREG t1, code_bgn_off+0*sv_area_sz(sp)                                  // load the address of code_bgn_off in t1
-	add t2, t1, t0                                                          // add the offset to the base address of save area
-	SREG t2, code_bgn_off+1*sv_area_sz(sp)                                  // write the address of code_bgn_off in sscratch
-
-	/******* data *******/
-	// update save areaload is 
-	LI (t0, va_data)                                                        // load the virtual address of rvtest_data in t0
-	LA (t1, rvtest_data)                                                    // load the physical address of rvtest_data in t1
-	sub t0, t0, t1                                                          // (VA-PA) Note: VA > PA 
-	LREG t1, data_bgn_off+0*sv_area_sz(sp)                                  // load the address of data_bgn_off in t1
-	add  t2, t1,t0                                                          // add the offset to the base address of save area
-	SREG t2, data_bgn_off+1*sv_area_sz(sp)                                  // write the address of data_bgn_off in sscratch
-	//signature
-	LI (t0, sig_data)                                                       // load the virtual address of signature_x13_1 in t0
-	LA (t1, signature_x13_1)                                                // load the physical address of signature_x13_1 in t1
-	sub t0, t0, t1                                                          // (VA-PA) Note: VA > PA 
-	LREG t1, sig_bgn_off+0*sv_area_sz(sp)                                   // load the address of sig_bgn_off in t1
-	add t2, t1, t0                                                          // add the offset to the base address of save area
-	SREG t2, sig_bgn_off+1*sv_area_sz(sp)                                   // write the address of sig_bgn_off in sscratch
-	// vmem
-	LI (t0, va_data)                                                        // load the virtual address of rvtest_data in t0
-	LA (t1, rvtest_data)                                                    // load the physical address of rvtest_data in t1
-	sub t0, t0, t1                                                          // (VA-PA) Note: VA > PA
-	LREG t1, vmem_bgn_off+0*sv_area_sz(sp)                                  // load the address of vmem_bgn_off in t1
-	add t2, t1, t0                                                          // add the offset to the base address of save area
-	SREG t2, vmem_bgn_off+1*sv_area_sz(sp)                                  // write the address of vmem_bgn_off in sscratch
-
+	SIGNATURE_AREA_SETUP_CODE(va, pa)						// signature area for code 
+	SIGNATURE_AREA_SETUP_DATA(va_data,rvtest_data)				// signature area for data 
+	SIGNATURE_AREA_SETUP_SIG(sig_data, signature_x13_1)				// signature area for signature 
+	SIGNATURE_AREA_SETUP_VMEM(va_data, rvtest_data)				// signature area for vmem
 	sfence.vma                                                              // flush the TLB
 #-----------------------------------------------------------------------------------------------------------------------------
 
@@ -182,7 +151,7 @@ LOAD_CHECK:
 
 #-----------------------------------------------------------------------------------------------------------------------------
 RVTEST_CODE_END
-RVMODEL_HALT
+# RVMODEL_HALT
 
 RVTEST_DATA_BEGIN
 .align 24
@@ -196,7 +165,7 @@ rvtest_data:
 #ifdef rvtest_strap_routine
 .align 12
 rvtest_slvl1_pg_tbl:
-        RVTEST_PTE_IDENT_MAP
+    RVTEST_PTE_IDENT_MAP(0,2,RVTEST_ALLPERMS)
 #endif
 RVTEST_DATA_END
 RVMODEL_DATA_BEGIN
