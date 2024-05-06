@@ -15,46 +15,264 @@
         1: Superpage
 */
 
-#define LEVEL0 0x00
-#define LEVEL1 0x01
-#define LEVEL2 0x02
-#define LEVEL3 0x03
-#define LEVEL4 0x04
-
-#define sv39 0x00
-#define sv48 0x01
-#define sv57 0x02
-
-#define CODE code_bgn_off
-#define DATA data_bgn_off
-#define SIG  sig_bgn_off
-#define VMEM vmem_bgn_off
-
-#define ALL_MEM_PMP                                               ;\
-    	li t2, -1                                                 ;\
-    	csrw pmpaddr0, t2                                         ;\
-    	li t2, 0x0F	                                          ;\
-    	csrw pmpcfg0, t2                                          ;\
-    	sfence.vma                                                ;
-
-#define SIGNATURE_AREA(TYPE,ARG1,ARG2, ...)                       ;\
-	LI (t0, ARG1)                                             ;\
-	.if(TYPE == CODE)                                         ;\
-        LI (t1, ARG2)                                             ;\
-	    sub t0, t0, t1                                        ;\
-            csrr sp, mscratch                                     ;\
-	    add t1,sp,t0                                          ;\
-	    csrw sscratch, t1                                     ;\
-    .else                                                         ;\
-        LA (t1, ARG2)                                             ;\
-	    sub t0, t0, t1                                        ;\
-    .endif                                                        ;\
-	LREG t1, TYPE+0*sv_area_sz(sp)                            ;\
-	add t2, t1, t0                                            ;\
-	SREG t2, TYPE+1*sv_area_sz(sp)                            ;
-
 //****NOTE: label `rvtest_Sroot_pg_tbl` must be declared after RVTEST_DATA_END
 //          in the test aligned at 4kiB (use .align 12)
+
+#define SATP_SV32_MODE_VAL 0x01
+
+#define ENABLE_READ_CHECK     0x01
+#define DISABLE_READ_CHECK    0x00
+#define ENABLE_WRITE_CHECK    0x01
+#define DISABLE_WRITE_CHECK   0x00
+#define ENABLE_EXECUTE_CHECK  0x01
+#define DISBALE_EXECUTE_CHECK 0x00
+
+#define LEVEL0 0x00
+#define LEVEL1 0x01
+
+#define ACCESS_BIT_TEST        0x01
+#define VM_PMP_TEST            0x02
+#define VM_MXR_UNSET_TEST      0x03
+#define VM_SUM_UNSET_TEST      0x04
+#define VM_SATP_SV32_MODE_TEST 0x05
+
+#define REG_CLEAR    0x1
+#define NO_REG_CLEAR 0x0
+
+#define ALL_F_S 0xFFFFFFFF
+#define LHW_F_S 0x0000FFFF
+#define UHW_F_S 0xFFFF0000
+#define B1_F_S  0x000000FF
+#define B2_F_S  0x0000FF00
+#define B3_F_S  0x00FF0000
+#define B4_F_S  0xFF000000
+
+#define PMPADDR0 0x0
+#define PMPADDR1 0x1
+#define PMPADDR2 0x2
+#define PMPADDR3 0x3
+
+#define PMPCFG_0_SHIFT 0x00
+#define PMPCFG_1_SHIFT 0x08
+#define PMPCFG_2_SHIFT 0x10
+#define PMPCFG_3_SHIFT 0x18
+
+#define NAPOT_RANGE_8B  0x0
+#define NAPOT_RANGE_16B 0x01
+#define NAPOT_RANGE_32B 0x03
+
+#define PTE_OFFSET_SHIFT 12
+
+#define INSTRUCTION_ADDRESS_MISALIGNED 0
+#define INSTRUCTION_ACCESS_FAULT       1
+#define ILLEGAL_INSTRUCTION            2 
+#define BREAKPOINT                     3
+#define LOAD_ADDRESS_MISALIGNED        4
+#define LOAD_ACCESS_FAULT              5
+#define STORE_AMO_ADDRESS_MISALIGNED   6
+#define STORE_AMO_ACCESS_FAULT         7
+#define ENVIRONMENT_CALL_FROM_U_MODE   8
+#define ENVIRONMENT_CALL_FROM_S_MODE   9
+#define ENVIRONMENT_CALL_FROM_M_MODE   11
+#define INSTRUCTION_PAGE_FAULT         12
+#define LOAD_PAGE_FAULT                13
+#define STORE_AMO_PAGE_FAULT           15
+
+#define OP_READ    0x0
+#define OP_WRITE   0x1
+#define OP_EXECUTE 0x01
+
+#define ASID_IMPLE_CVA6 0x00400000
+#define EXPECTED_ASID   0x00400000
+
+#define NO_EXCEP_NO     110
+
+#define SHIFT_22         22
+#define SHIFT_20         20
+#define SHIFT_12         12
+#define PGTB_INDEX_SHIFT 2
+
+#define SUCCESS 0
+#define FAILED  1
+
+
+#define WRITE_CSR(CSR_REG, SRC_REG)                                ;\
+    csrw CSR_REG, SRC_REG                                          ;
+
+#define CLEAR_CSR(CSR_REG, SRC_REG)                                ;\
+    csrc CSR_REG, SRC_REG                                          ;
+
+#define SET_CSR(CSR_REG, SRC_REG)                                  ;\
+    csrs CSR_REG, SRC_REG                                          ;
+
+#define READ_CSR(CSR_REG, DST_REG)                                 ;\
+    csrr DST_REG, CSR_REG                                          ;
+
+#define CLEAR_REG(REG)                                             ;\
+    li REG, 0                                                      ;
+
+//Set the PMP permissions for the whole memory
+#define ALL_MEM_PMP                                                ;\
+    li t2, ALL_F_S                                                 ;\
+    csrw pmpaddr0, t2                                              ;\
+    CLEAR_REG(t2)                                                  ;\
+    SET_PMP_TOR_RWX(t2, t6, PMPADDR0)                              ;\
+    csrw pmpcfg0, t2                                               ;\
+
+//set read permissions for the PMP
+#define SET_PMP_R(REG, TMP, PMPADDR)                               ;\
+    .if(PMPADDR == PMPADDR0)                                       ;\
+        ori REG, REG, PMP_R                                        ;\
+    .endif                                                         ;\
+    .if(PMPADDR == PMPADDR1)                                       ;\
+        li TMP, PMP_R                                              ;\
+        slli TMP, TMP, PMPADDR1 << PMPADDR3                        ;\
+        or REG, REG, TMP                                           ;\
+    .endif                                                         ;\
+    .if(PMPADDR == PMPADDR2)                                       ;\
+        li TMP, PMP_R                                              ;\
+        slli TMP, TMP, PMPADDR2 << PMPADDR3                        ;\
+        or REG, REG, TMP                                           ;\
+    .endif                                                         ;\
+    .if(PMPADDR == PMPADDR3)                                       ;\
+        li TMP, PMP_R                                              ;\
+        slli TMP, TMP, PMPADDR3 << PMPADDR3                        ;\
+        or REG, REG, TMP                                           ;\
+    .endif                                                         ;\
+    CLEAR_REG(TMP)                                                 ;
+
+#define SET_PMP_W(REG, TMP, PMPADDR)                               ;\
+    .if(PMPADDR == PMPADDR0)                                       ;\
+        ori REG, REG, PMP_W                                        ;\
+    .endif                                                         ;\
+    .if(PMPADDR == PMPADDR1)                                       ;\
+        li TMP, PMP_W                                              ;\
+        slli TMP, TMP, PMPADDR1 << PMPADDR3                        ;\
+        or REG, REG, TMP                                           ;\
+    .endif                                                         ;\
+    .if(PMPADDR == PMPADDR2)                                       ;\
+        li TMP, PMP_W                                              ;\
+        slli TMP, TMP, PMPADDR2 << PMPADDR3                        ;\
+        or REG, REG, TMP                                           ;\
+    .endif                                                         ;\
+    .if(PMPADDR == PMPADDR3)                                       ;\
+        li TMP, PMP_W                                              ;\
+        slli TMP, TMP, PMPADDR3 << PMPADDR3                        ;\
+        or REG, REG, TMP                                           ;\
+    .endif                                                         ;\
+    CLEAR_REG(TMP)                                                 ;
+
+#define SET_PMP_X(REG, TMP, PMPADDR)                               ;\
+    .if(PMPADDR == PMPADDR0)                                       ;\
+        ori REG, REG, PMP_X                                        ;\
+    .endif                                                         ;\
+    .if(PMPADDR == PMPADDR1)                                       ;\
+        li TMP, PMP_X                                              ;\
+        slli TMP, TMP, PMPADDR1 << PMPADDR3                        ;\
+        or REG, REG, TMP                                           ;\
+    .endif                                                         ;\
+    .if(PMPADDR == PMPADDR2)                                       ;\
+        li TMP, PMP_X                                              ;\
+        slli TMP, TMP, PMPADDR2 << PMPADDR3                        ;\
+        or REG, REG, TMP                                           ;\
+    .endif                                                         ;\
+    .if(PMPADDR == PMPADDR3)                                       ;\
+        li TMP, PMP_X                                              ;\
+        slli TMP, TMP, PMPADDR3 << PMPADDR3                        ;\
+        or REG, REG, TMP                                           ;\
+    .endif                                                         ;\
+    CLEAR_REG(TMP)                                                 ;
+
+
+#define SET_PMP_TOR(REG, TMP, PMPADDR)                             ;\
+    .if(PMPADDR == PMPADDR0)                                       ;\
+        ori REG, REG, PMP_TOR                                      ;\
+    .endif                                                         ;\
+    .if(PMPADDR == PMPADDR1)                                       ;\
+        li TMP, PMP_TOR                                            ;\
+        slli TMP, TMP, PMPADDR1 << PMPADDR3                        ;\
+        or REG, REG, TMP                                           ;\
+    .endif                                                         ;\
+    .if(PMPADDR == PMPADDR2)                                       ;\
+        li TMP, PMP_TOR                                            ;\
+        slli TMP, TMP, PMPADDR2 << PMPADDR3                        ;\
+        or REG, REG, TMP                                           ;\
+    .endif                                                         ;\
+    .if(PMPADDR == PMPADDR3)                                       ;\
+        li TMP, PMP_TOR                                            ;\
+        slli TMP, TMP, PMPADDR3 << PMPADDR3                        ;\
+        or REG, REG, TMP                                           ;\
+    .endif                                                         ;\
+    CLEAR_REG(TMP)                                                 ;
+
+
+#define SET_PMP_TOR_RWX(REG, TMP, PMPADDR)                         ;\
+    SET_PMP_X(REG, TMP, PMPADDR)                                   ;\
+    SET_PMP_R(REG, TMP, PMPADDR)                                   ;\
+    SET_PMP_W(REG, TMP, PMPADDR)                                   ;\
+    SET_PMP_TOR(REG, TMP, PMPADDR)                                 ;
+
+#define CHANGE_T0_S_MODE(MEPC_ADDR)                                ;\
+    li        t0, MSTATUS_MPP                                      ;\
+    CLEAR_CSR (mstatus, t0)                                        ;\
+    li  t1, MSTATUS_MPP & ( MSTATUS_MPP >> 1)                      ;\
+    SET_CSR   (mstatus,t1)                                         ;\
+    WRITE_CSR (mepc,MEPC_ADDR)                                     ;\
+    mret                                                           ;
+
+#define CHANGE_T0_U_MODE(MEPC_ADDR)                                ;\
+    li        t0, MSTATUS_SPP                                      ;\
+    CLEAR_CSR (mstatus,t0)                                         ;\
+    WRITE_CSR (mepc,MEPC_ADDR)                                     ;\
+    mret                                                           ;
+
+
+
+
+#define SIGNATURE_AREA_SETUP_CODE(VA, PA)                           ;\
+    LI  t0, VA                                                      ;\
+    LA  t1, PA                                                      ;\
+    sub t0, t0, t1                                                  ;\
+    csrr sp, mscratch                                               ;\
+    add t1, sp, t0                                                  ;\
+    csrw sscratch, t1                                               ;\
+    LREG t1, code_bgn_off+0*sv_area_sz(sp)                          ;\
+    add t2, t1, t0                                                  ;\
+    SREG t2, code_bgn_off+1*sv_area_sz(sp)                          ;
+
+#define SIGNATURE_AREA_SETUP_DATA(VA, PA)                           ;\
+    LI  t0, VA                                                      ;\
+    LA  t1, PA                                                      ;\
+    sub t0, t0, t1                                                  ;\
+    csrr sp, mscratch                                               ;\
+    add t1, sp, t0                                                  ;\
+    csrw sscratch, t1                                               ;\
+    LREG t1, data_bgn_off+0*sv_area_sz(sp)                          ;\
+    add t2, t1, t0                                                  ;\
+    SREG t2, data_bgn_off+1*sv_area_sz(sp)                          ;
+
+#define SIGNATURE_AREA_SETUP_SIG(VA, PA)                            ;\
+    LI  t0, VA                                                      ;\
+    LA  t1, PA                                                      ;\
+    sub t0, t0, t1                                                  ;\
+    csrr sp, mscratch                                               ;\
+    add t1, sp, t0                                                  ;\
+    csrw sscratch, t1                                               ;\
+    LREG t1, sig_bgn_off+0*sv_area_sz(sp)                          ;\
+    add t2, t1, t0                                                  ;\
+    SREG t2, sig_bgn_off+1*sv_area_sz(sp)                          ;
+
+#define SIGNATURE_AREA_SETUP_VMEM(VA, PA)                           ;\
+    LI  t0, VA                                                      ;\
+    LA  t1, PA                                                      ;\
+    sub t0, t0, t1                                                  ;\
+    csrr sp, mscratch                                               ;\
+    add t1, sp, t0                                                  ;\
+    csrw sscratch, t1                                               ;\
+    LREG t1, vmem_bgn_off+0*sv_area_sz(sp)                          ;\
+    add t2, t1, t0                                                  ;\
+    SREG t2, vmem_bgn_off+1*sv_area_sz(sp)                          ;
+
 
 #define PTE_SETUP_RV32(_PAR, _PR, _TR0, _TR1, VA, level)  	;\
     srli _PAR, _PAR, 12                                         ;\
@@ -72,68 +290,6 @@
     add _TR1, _TR1, _TR0                                        ;\
     SREG _PAR, 0(_TR1);                                          
 
-#define PTE_SETUP_RV64(_PAR, _PR, _TR0, _TR1, VA, level, mode)  ;\
-    srli _PAR, _PAR, 12                                         ;\
-    slli _PAR, _PAR, 10                                         ;\
-    or _PAR, _PAR, _PR                                          ;\
-    .if (mode == sv39)                                          ;\
-        .if (level == 2)                                        ;\
-            LA(_TR1, rvtest_Sroot_pg_tbl)                       ;\
-            .set vpn, ((VA >> 30) & 0x1FF) << 3                 ;\
-        .endif                                                  ;\
-        .if (level == 1)                                        ;\
-            LA(_TR1, rvtest_slvl1_pg_tbl)                       ;\
-            .set vpn, ((VA >> 21) & 0x1FF) << 3                 ;\
-        .endif                                                  ;\
-        .if (level == 0)                                        ;\
-            LA(_TR1, rvtest_slvl2_pg_tbl)                       ;\
-            .set vpn, ((VA >> 12) & 0x1FF) << 3                 ;\
-        .endif                                                  ;\
-    .endif                                                      ;\
-    .if (mode == sv48)                                          ;\
-        .if (level == 3)                                        ;\
-            LA(_TR1, rvtest_Sroot_pg_tbl)                       ;\
-            .set vpn, ((VA >> 39) & 0x1FF) << 3                 ;\
-        .endif                                                  ;\
-        .if (level == 2)                                        ;\
-            LA(_TR1, rvtest_slvl1_pg_tbl)                       ;\
-            .set vpn, ((VA >> 30) & 0x1FF) << 3                 ;\
-        .endif                                                  ;\
-        .if (level == 1)                                        ;\
-            LA(_TR1, rvtest_slvl2_pg_tbl)                       ;\
-            .set vpn, ((VA >> 21) & 0x1FF) << 3                 ;\
-        .endif                                                  ;\
-        .if (level == 0)                                        ;\
-            LA(_TR1, rvtest_slvl3_pg_tbl)                       ;\
-            .set vpn, ((VA >> 12) & 0x1FF) << 3                 ;\
-        .endif                                                  ;\
-    .endif                                                      ;\
-    .if (mode == sv57)                                          ;\
-        .if (level == 4)                                        ;\
-            LA(_TR1, rvtest_Sroot_pg_tbl)                       ;\
-            .set vpn, ((VA >> 48) & 0x1FF) << 3                 ;\
-        .endif                                                  ;\
-        .if (level == 3)                                        ;\
-            LA(_TR1, rvtest_slvl1_pg_tbl)                       ;\
-            .set vpn, ((VA >> 39) & 0x1FF) << 3                 ;\
-        .endif                                                  ;\
-        .if (level == 2)                                        ;\
-            LA(_TR1, rvtest_slvl2_pg_tbl)                       ;\
-            .set vpn, ((VA >> 30) & 0x1FF) << 3                 ;\
-        .endif                                                  ;\
-        .if (level == 1)                                        ;\
-            LA(_TR1, rvtest_slvl3_pg_tbl)                       ;\
-            .set vpn, ((VA >> 21) & 0x1FF) << 3                 ;\
-        .endif                                                  ;\
-        .if (level == 0)                                        ;\
-            LA(_TR1, rvtest_slvl3_pg_tbl)                       ;\
-            .set vpn, ((VA >> 12) & 0x1FF) << 3                 ;\
-        .endif                                                  ;\
-    .endif                                                      ;\
-    LI(_TR0, vpn)                                               ;\
-    add _TR1, _TR1, _TR0                                        ;\
-    SREG _PAR, 0(_TR1)                                          ;
-
 #define PTE_PERMUPD_RV32(_PR, _TR0, _TR1, VA, level)          	;\
     .if (level==1)                                              ;\
         LA(_TR1, rvtest_Sroot_pg_tbl)                           ;\
@@ -149,71 +305,28 @@
     srli _TR0, _TR0, 10                                         ;\
     slli _TR0, _TR0, 10                                         ;\
     or _TR0, _TR0, _PR                                          ;\
-    SREG _TR0, 0(_TR1)                                          ;   
+    SREG _TR0, 0(_TR1)                                          ;\
 
 #define SATP_SETUP_SV32 ;\
     LA(t6, rvtest_Sroot_pg_tbl) ;\
     LI(t5, SATP32_MODE) ;\
     srli t6, t6, 12 ;\
     or t6, t6, t5  ;\
-    csrw satp, t6   ;
-
-#define SATP_SETUP_RV64(MODE)                                   ;\
-    LA(t6, rvtest_Sroot_pg_tbl)                                 ;\
-    .if (MODE == sv39)                                          ;\
-    LI(t5, (SATP64_MODE) & (SATP_MODE_SV39 << 60))              ;\
-    .endif                                                      ;\
-    .if (MODE == sv48)                                          ;\
-    LI(t5, (SATP64_MODE) & (SATP_MODE_SV48 << 60))              ;\
-    .endif                                                      ;\
-    .if (MODE == sv57)                                          ;\
-    LI(t5, (SATP64_MODE) & (SATP_MODE_SV57 << 60))              ;\
-    .endif                                                      ;\
-    .if (MODE == sv64)                                          ;\
-    LI(t5, (SATP64_MODE) & (SATP_MODE_SV64 << 60))              ;\
-    .endif                                                      ;\
-    srli t6, t6, 12                                             ;\
-    or t6, t6, t5                                               ;\
-    csrw satp, t6                                               ;
-
-//Tests for atomic memory operation(AMO) instructions
-#define TEST_AMO_OP(inst, destreg, origptr, reg2, origval, updval, sigptr, ...) ;\
-      .if NARG(__VA_ARGS__) == 1			;\
-	.set offset,_ARG1(__VA_OPT__(__VA_ARGS__,0))	;\
-      .endif						;\
-      LI(reg2, MASK_XLEN(origval))			;\
-      RVTEST_SIGUPD(sigptr, reg2) /*Write original AMO src */ ;\
-      LI(reg2, MASK_XLEN(updval)) ;\
-      addi origptr, sigptr, offset-REGWIDTH /* Calculate where orig AMO src is stored */ ;\
-      inst destreg, reg2, (origptr) /*origval -> destreg; updated val -> (origptr) */ ;\
-      RVTEST_SIGUPD(sigptr, destreg) /* write original AMO val */
-
-
+    csrw satp, t6   ;\
 
 #define NAN_BOXED(__val__,__width__,__max__)	;\
-     .if __width__ == 16                        ;\
-        .hword __val__                         ;\
-    .endif                                     ;\
     .if __width__ == 32				;\
 	.word __val__				;\
     .else					;\
 	.dword __val__				;\
     .endif					;\
     .if __max__ > __width__			;\
-        .if __width__ == 16                      ;\
-         .set pref_bytes,(__max__-__width__)/16;\
-        .else				                             ;\
-         .set pref_bytes,(__max__-__width__)/32;\
-    	.endif                                   ;\
+	.set pref_bytes,(__max__-__width__)/32	;\
     .else					;\
 	.set pref_bytes, 0			;\
     .endif					;\
     .rept pref_bytes				;\
-        .if __width__ == 16         ;\
-		      .hword 0xffff         ;\
-        .else				        ;\
-	        .word 0xffffffff		;\
-        .endif                      ;\    
+	.word 0xffffffff			;\
     .endr					;
 
 #define ZERO_EXTEND(__val__,__width__,__max__)	;\
@@ -412,7 +525,7 @@
 
 #define TEST_JALR_OP(tempreg, rd, rs1, imm, swreg, offset,adj)	;\
 5:					;\
-    auipc rd, 0             ;\
+    LA(rd,5b)				;\
     .if adj & 1 == 1			;\
     LA(rs1, 3f-imm+adj-1)		;\
     jalr rd, imm+1(rs1)			;\
@@ -446,17 +559,13 @@
     jalr x0,0(tempreg)			;\
 6:  LA(tempreg, 4f)			;\
     jalr x0,0(tempreg)			;\
-1:  .if adj & 2 == 2			;\
-    .ifc label, 1b			;\
+1:  .if (adj & 2 == 2) && (label == 1b)	;\
     .fill 2,1,0x00			;\
-    .endif				;\
     .endif				;\
     xori rd,rd, 0x1			;\
     beq x0,x0,6b			;\
-    .if adj & 2 == 2			;\
-    .ifc label, 1b			;\
+    .if (adj & 2 == 2) && (label == 1b)	;\
     .fill 2,1,0x00			;\
-    .endif				;\
     .endif				;\
     .if (imm/2) - 2 >= 0		;\
 	.set num,(imm/2)-2		;\
@@ -488,18 +597,14 @@
     .rept num				;\
     nop					;\
     .endr				;\
-3:  .if adj & 2 == 2			;\
-    .ifc label, 3f			;\
+3:  .if (adj & 2 == 2) && (label == 3f)	;\
     .fill 2,1,0x00			;\
-    .endif				;\
     .endif				;\
     xori rd,rd, 0x3			;\
     LA(tempreg, 4f)			;\
     jalr x0,0(tempreg)			;\
-    .if adj & 2 == 2			;\
-    .ifc label, 3f			;\
+    .if (adj&2 == 2) && (label == 3f)	;\
     .fill 2,1,0x00			;\
-    .endif				;\
     .endif				;\
 4: LA(tempreg, 5b)			;\
    andi tempreg,tempreg,~(3)		;\
@@ -596,14 +701,6 @@ nop					;\
 nop					;\
 csrr flagreg, fcsr			;\
 RVTEST_SIGUPD_F(swreg,destreg,flagreg) 
-
-#define TEST_CBO_ZERO(swreg,rs1,inst,imm_val)                               ;\
-LI(rs1,imm_val&(RVMODEL_CBZ_BLOCKSIZE-1))                                   ;\
-add rs1,rs1,swreg                                                           ;\
-inst (rs1)                                                                  ;\
-nop                                                                         ;\
-nop                                                                         ;\
-ADDI(swreg, swreg, RVMODEL_CBZ_BLOCKSIZE)
 
 #define TEST_CSR_FIELD(ADDRESS,TEMP_REG,MASK_REG,NEG_MASK_REG,VAL,DEST_REG,OFFSET,BASE_REG) ;\
     LI(TEMP_REG,VAL)			;\
@@ -930,14 +1027,7 @@ ADDI(swreg, swreg, RVMODEL_CBZ_BLOCKSIZE)
       inst destreg, x2,imm		;\
       )
 
-//Tests for instructions with single (rd/rs1) register operand.
-#define TEST_CRD_OP(inst, destreg, correctval, val1, swreg, offset, testreg) \
-    TEST_CASE(testreg, destreg, correctval, swreg, offset, \
-      LI(destreg, MASK_XLEN(val1))		;\
-      inst destreg		;\
-      )
-
-//Tests for instructions with a destination and single source register operand
+//Tests for instructions with a single register operand
 #define TEST_RD_OP(inst, destreg, reg1, correctval, val1, swreg, offset, testreg) \
   TEST_CMV_OP(inst, destreg, reg1, correctval, val1, swreg, offset, testreg)
 
